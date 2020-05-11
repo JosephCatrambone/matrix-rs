@@ -5,7 +5,7 @@ use std::fmt;
 use std::ops::{Add, AddAssign, Sub, SubAssign, Mul, MulAssign, Div, DivAssign, Index, IndexMut, Range};
 
 #[derive(Clone, Debug, Default)]
-struct Matrix<T:Num+Copy> {
+pub struct Matrix<T:Num+Copy> {
 	rows: usize,
 	columns: usize,
 	data: Vec<T>
@@ -49,7 +49,7 @@ impl<T:Num + Send + Sync + Copy> Matrix<T> {
 		let mut column_to_matrix_index = vec![];
 		let mut matrix_start_column = vec![];
 		for (mat_idx, m) in matrices.iter().enumerate() {
-			for c in total_columns..(total_columns + m.columns) {
+			for _c in total_columns..(total_columns + m.columns) {
 				column_to_matrix_index.push(mat_idx);
 			}
 			matrix_start_column.push(total_columns);
@@ -140,17 +140,16 @@ impl<T:Num + Send + Sync + Copy> Matrix<T> {
 		Matrix::from_data(self.rows, self.columns, self.data.par_iter_mut().enumerate().map(|(idx, v)| { f(idx, &v) }).collect())
 	}
 
-	/// Copy a block of the matrix.
-	/// Row and column values are inclusive and can use negative indexing to indicate the number of rows/cols from the end.
-	///
-	/// Example:
-	/// ```
-	/// let x = Matrix::<u32>::from_data(2, 3, vec![1, 2, 3, 4, 5, 6]);
-	/// // Rows 1-1 (inclusive) and columns (3, last (inclusive))
-	/// print!("{}", &x.copy_slice(1, 1, 3, -1));
-	/// // [4, 5, 6]
-	/// ```
-	///
+	// Copy a block of the matrix.
+	// Row and column values are inclusive and can use negative indexing to indicate the number of rows/cols from the end.
+	//
+	// Example:
+	// ```rust
+	// let x = Matrix::<u32>::from_data(2, 3, vec![1, 2, 3, 4, 5, 6]);
+	// // Rows 1-1 (inclusive) and columns (3, last (inclusive))
+	// print!("{}", &x.copy_slice(1, 1, 3, -1));
+	// // [4, 5, 6]
+	// ```
 	fn copy_slice(&self, row_start: i64, row_end_incl: i64, column_start: i64, column_end_incl: i64) -> Matrix<T> {
 		let x_start = if column_start < 0 {
 			self.columns as i64 + column_start
@@ -178,7 +177,8 @@ impl<T:Num + Send + Sync + Copy> Matrix<T> {
 			let width = x_end - x_start;
 			let y = i / width;
 			let x = i % width;
-			self.data[(x + x_start) + (y + y_start) * width].clone()
+			//self.get(y + y_start, x + x_start).clone()  // Maybe?
+			self.data[(x + x_start) + (y + y_start) * self.columns].clone()
 		})
 	}
 
@@ -440,6 +440,15 @@ mod tests {
 		for (a,b) in foo.data.iter().zip(res.data.iter()) {
 			assert_eq!(*a, *b);
 		}
+		
+		let a = Matrix::<u32>::from_data(2, 2, vec![1, 2, 3, 4]);
+		let b = Matrix::<u32>::from_data(2, 3, vec![8, 6, 7, 5, 3, 0]);
+		let target = Matrix::<u32>::from_data(2, 5, vec![
+			1, 2, 8, 6, 7,
+			3, 4, 5, 3, 0
+		]);
+		let candidate = Matrix::hstack(vec![&a, &b]);
+		assert_eq!(&target.data, &candidate.data);
 	}
 
 	#[test]
@@ -450,12 +459,10 @@ mod tests {
 			0.0, 2.0, 1.0, 0.0,
 		]);
 		a.gauss_jordan_elimination();
-		println!("{}", &a);
 
 		let mut a = Matrix::<f32>::from_fn(5, 5, |i| {
 			1.0f32 + ((i % 3 * i * i) % 10) as f32
 		});
-		println!("{}", &a);
 
 		let mut ident = Matrix::<f32>::identity(5, 5);
 
@@ -463,7 +470,9 @@ mod tests {
 		combined.gauss_jordan_elimination();
 		let ident = combined.copy_slice(0, -1, 0, 4);
 		let inverse = combined.copy_slice(0, -1, 5, -1);
-		println!("{}", &ident);
-		println!("{}", &inverse);
+		
+		let maybe_identity = inverse.matmul(&a);
+		let error = maybe_identity.data.iter().zip(ident.data.iter()).fold(0.0f32, |acc, (a,b)|{ acc + (a-b).abs() });
+		assert!(error < 1e6);
 	}
 }
